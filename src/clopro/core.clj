@@ -1,6 +1,5 @@
 (ns clopro.core
   (:require
-    [clojure.zip :as z]
     [net.cgrand.enlive-html :as html]
     [clj-http.client :as client]
     ))
@@ -8,6 +7,7 @@
 (def main_url "https://en.wikipedia.org")
 (def destination_uri "/wiki/Philosophy")
 
+;; URI patterns to ignore
 (def ignore_urls
   ["/wiki/Special:(.*)"
    "/wiki/Wiktionary:(.*)"
@@ -21,12 +21,13 @@
    "(.*)(disambiguation)(.*)"
    ])
 
+;; Complete url
 (defn complete-url
   [uri]
   (str main_url uri))
 
-;Ignore urls
-(defn bad-url?
+;; Check whether bad uri or not
+(defn bad-uri?
   [input]
   (loop [remaining_urls ignore_urls]
     (if (empty? remaining_urls)
@@ -37,17 +38,20 @@
           (recur remaining)
           )))))
 
-(defn valid-wiki-url?
+;; Check whether valid uri or not
+(defn valid-wiki-uri?
   [input]
   (clojure.string/starts-with? input "/wiki"))
 
+;; Remove unwanted elements
 (defn strip-dom
   [dom]
-  (let [no-table (html/transform dom [:table] (html/substitute ""))
-        no-i (html/transform no-table [:i] (html/substitute ""))
-        no-not-searchable (html/transform no-table [:div.navigation-not-searchable] (html/substitute ""))]
-    no-not-searchable))
+  (let [dom-no-table (html/transform dom [:table] (html/substitute ""))
+        dom-no-i (html/transform dom-no-table [:i] (html/substitute ""))
+        dom-no-not-searchable (html/transform dom-no-i [:div.navigation-not-searchable] (html/substitute ""))]
+    dom-no-not-searchable))
 
+;; Return html dom excluding parentheses
 (defn html-with-no-parentheses
   [starting_url]
   (let [req (client/get starting_url {:cookie-policy :standard})
@@ -56,7 +60,8 @@
         dom-tree (html/html-snippet req-no-parentheses)]
     dom-tree))
 
-(defn non-visited-uri
+;; Next uri to consider from the available links
+(defn next-uri-to-visit
   [visited_uris current_links]
   (loop [current_uris current_links]
     (let [[f_uri & remaining] current_uris]
@@ -64,6 +69,7 @@
         f_uri
         (recur remaining)))))
 
+;; Visit the provided url and return next uri to proceed
 (defn wiki-first-link
   [starting_url visited_uris]
   (let [dom (html-with-no-parentheses starting_url)
@@ -72,11 +78,11 @@
         links (mapcat #(html/attr-values % :href) link-nodes)]
     ;(print visited_uris)
     (->> links
-         (filter valid-wiki-url?)
-         (filter (complement bad-url?))
-         (non-visited-uri visited_uris))))
+         (filter valid-wiki-uri?)
+         (filter (complement bad-uri?))
+         (next-uri-to-visit visited_uris))))
 
-
+;; Scrape wikipedia.org and print the path to philosophy
 (defn scrape-wiki
   [main_uri]
   (loop [uri main_uri
@@ -89,5 +95,7 @@
         (recur next_uri (conj visited_uris next_uri))))))
 
 (defn start-scrape
+  "This is the starting point of the application.
+  It takes uri of en.wikipedia.org like /wiki/Wikipedia"
   [input_uri]
   (scrape-wiki input_uri))

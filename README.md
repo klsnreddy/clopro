@@ -4,7 +4,13 @@ A Clojure library designed to ... well, that part is up to you.
 
 ## Usage
 
-FIXME
+<ul>
+  <li>Install Leiningen</li>
+  <li>lein repl</li>
+  <li>(load-file "src/clopro/core.clj")</li>
+  <li>(in-ns 'clopro.core)</li>
+  <li>(start-scrape "/wiki/Wikipedia")</li>
+</ul>
 
 ## License
 
