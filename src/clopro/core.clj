@@ -2,34 +2,11 @@
   (:require
     [clojure.zip :as z]
     [net.cgrand.enlive-html :as html]
+    [clj-http.client :as client]
     ))
 
 (def main_url "https://en.wikipedia.org")
 (def destination_uri "/wiki/Philosophy")
-
-(def t_urls
-  {
-   :url_0  "/wiki/Index_(publishing)"
-   :url_1  "/wiki/Biology"
-   :url_2  "/wiki/Organism"
-   :url_3  "/wiki/Special:Page"
-   :url_4  "/wiki/Natural_science"
-   :url_5  "/wiki/Empirical_evidence"
-   :url_6  "/wiki/Wiktionary:Page"
-   :url_7  "/wiki/Knowledge"
-   :url_8  "/wiki/Discovery_(observation)"
-   :url_9  "/wiki/Invention"
-   :url_10 "/wiki/Autodesk_Inventor"
-   :url_11 "/wiki/Outline_of_academic_disciplines"
-   :url_12 "/wiki/Wiktionary:Page1"
-   :url_13 "/wiki/Higher_education"
-   :url_14 "/wiki/Europe"
-   :url_15 "/wiki/Mediterranean_Sea"
-   :url_16 "/wiki/Europe"
-   :url_17 "/wiki/Iberian_Peninsula"
-   :url_18 "/wiki/Spain"
-   :url_19 "/wiki/Philosophy"
-   })
 
 (def ignore_urls
   ["/wiki/Special:(.*)"
@@ -37,7 +14,16 @@
    "/wiki/Help:(.*)"
    "/wiki/Portal:(.*)"
    "/wiki/Category:(.*)"
-   "(.*)/File:(.*)"])
+   "(.*)/File:(.*)"
+   "/wiki/Wikipedia:Protection_policy(.*)"
+   "/wiki/Wikipedia:(.*)"
+   "/wiki/User:(.*)"
+   "(.*)(disambiguation)(.*)"
+   ])
+
+(defn complete-url
+  [uri]
+  (str main_url uri))
 
 ;Ignore urls
 (defn bad-url?
@@ -49,31 +35,59 @@
         (if (re-matches (re-pattern b_url) input)
           true
           (recur remaining)
-          )))
-    ))
+          )))))
 
 (defn valid-wiki-url?
   [input]
   (clojure.string/starts-with? input "/wiki"))
 
-(defn stripped
-  [orig]
-  (html/transform orig [(keyword "table")] (html/substitute "")))
+(defn strip-dom
+  [dom]
+  (let [no-table (html/transform dom [:table] (html/substitute ""))
+        no-i (html/transform no-table [:i] (html/substitute ""))
+        no-not-searchable (html/transform no-table [:div.navigation-not-searchable] (html/substitute ""))]
+    no-not-searchable))
 
-(defn wiki-article-links
+(defn html-with-no-parentheses
   [starting_url]
-  (let [dom (html/html-resource (java.net.URL. starting_url))
-        only-links (stripped dom)
-        link-nodes (html/select only-links [:body :div#content :a])
-        links (mapcat #(html/attr-values % :href) link-nodes)]
+  (let [req (client/get starting_url {:cookie-policy :standard})
+        body (:body req)
+        req-no-parentheses (clojure.string/replace body #"\\(.+?\\)" "")
+        dom-tree (html/html-snippet req-no-parentheses)]
+    dom-tree))
 
-    (println links)
+(defn non-visited-uri
+  [visited_uris current_links]
+  (loop [current_uris current_links]
+    (let [[f_uri & remaining] current_uris]
+      (if ((complement contains?) visited_uris f_uri)
+        f_uri
+        (recur remaining)))))
+
+(defn wiki-first-link
+  [starting_url visited_uris]
+  (let [dom (html-with-no-parentheses starting_url)
+        only-links (strip-dom dom)
+        link-nodes (html/select only-links [:body :div#bodyContent :a])
+        links (mapcat #(html/attr-values % :href) link-nodes)]
+    ;(print visited_uris)
     (->> links
          (filter valid-wiki-url?)
-         (filter (complement bad-url?)))
-    ))
+         (filter (complement bad-url?))
+         (non-visited-uri visited_uris))))
 
+
+(defn scrape-wiki
+  [main_uri]
+  (loop [uri main_uri
+         visited_uris [main_uri]]
+    (if (= uri destination_uri)
+      (println visited_uris)
+      (let [next_uri (wiki-first-link (complete-url uri) visited_uris)
+            next_url (complete-url next_uri)]
+        (println next_url)
+        (recur next_uri (conj visited_uris next_uri))))))
 
 (defn start-scrape
-  []
-  (wiki-article-links main_url))
+  [input_uri]
+  (scrape-wiki input_uri))
